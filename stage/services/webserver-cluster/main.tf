@@ -6,14 +6,14 @@ resource "aws_launch_configuration" "example" {
   image_id        = "ami-024ea438ab0376a47"
   instance_type   = "t3.micro"
   security_groups = [aws_security_group.instance.id]
-  user_data       = <<-EOF
-  #!/bin/bash
-  echo "Hello, World" > index.html
-  nohup busybox httpd -f -p ${var.server_port} &
-  EOF
+  user_data = templatefile("user-data.sh",{
+  server_port = var.server_port
+  db_address = data.terraform_remote_state.db.outputs.address
+  db_port = data.terraform_remote_state.db.outputs.port
+  })  
   lifecycle {
-   create_before_destroy = true
- }
+    create_before_destroy = true
+  }
 }
 resource "aws_autoscaling_group" "example" {
   launch_configuration = aws_launch_configuration.example.name
@@ -42,7 +42,7 @@ resource  "aws_security_group" "instance"  {
 variable "server_port" {
   description = "The port. the server will use for HTTP requests"
   type = number
-  default = 8080
+  default = 80
 }
 
 data "aws_vpc" "default" {
@@ -113,17 +113,25 @@ resource "aws_lb_target_group" "asg" {
  port = var.server_port
  protocol = "HTTP"
  vpc_id = data.aws_vpc.default.id
- health_check { # 헬스체크로 /에 http 보냈을 때 200 코드면 정상 확인
+ health_check { 
  path = "/"
  protocol = "HTTP"
  matcher = "200"
  interval = 15
  timeout = 3
- healthy_threshold = 2 # 2번 연속 성공시 헬스 체크
+ healthy_threshold = 2 
  unhealthy_threshold = 2
  }
 }
 output "alb_dns_name" {
  value = aws_lb.example.dns_name
  description = "The domain name of the load balancer"
+}
+data "terraform_remote_state" "db" {
+ backend = "s3"
+ config = {
+ bucket = "terraform-state-dudgkr3-wave"
+ key = "stage/data-stores/mysql/terraform.tfstate"
+ region = "ap-northeast-2"
+ }
 }
