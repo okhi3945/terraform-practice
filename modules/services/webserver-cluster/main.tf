@@ -1,8 +1,8 @@
 resource "aws_launch_configuration" "example" {
   image_id        = "ami-024ea438ab0376a47"
-  instance_type   = "t3.micro"
+  instance_type   = var.instance_type
   security_groups = [aws_security_group.instance.id]
-  user_data = templatefile("user-data.sh",{
+  user_data = templatefile("${path.module}/user-data.sh",{
   server_port = var.server_port
   db_address = data.terraform_remote_state.db.outputs.address
   db_port = data.terraform_remote_state.db.outputs.port
@@ -16,8 +16,8 @@ resource "aws_autoscaling_group" "example" {
   vpc_zone_identifier = data.aws_subnets.default.ids
   target_group_arns = [aws_lb_target_group.asg.arn]
   health_check_type = "ELB"
-  min_size = 2
-  max_size = 10
+  min_size = var.min_size
+  max_size = var.max_size
   tag {
   key = "Name"
   value = "terraform-asg-example"
@@ -62,7 +62,7 @@ resource "aws_lb" "example" {
 
 resource "aws_lb_listener" "http" {
  load_balancer_arn = aws_lb.example.arn
- port = 80
+ port = local.http_port
  protocol = "HTTP"
  # By default, return a simple 404 page
  default_action {
@@ -75,20 +75,20 @@ resource "aws_lb_listener" "http" {
  }
 }
 resource "aws_security_group" "alb" {
- name = "${var.cluster_name}-alb"
+ name = var.cluster_name
  # Allow inbound HTTP requests
  ingress {
- from_port = 80
- to_port = 80
- protocol = "tcp"
- cidr_blocks = ["0.0.0.0/0"]
+ from_port = local.http_port
+ to_port = local.http_port
+ protocol = local.tcp_protocol
+ cidr_blocks = local.all_ips
  }
  # Allow all outbound requests
  egress {
- from_port = 0
- to_port = 0
- protocol = "-1"
- cidr_blocks = ["0.0.0.0/0"]
+ from_port = local.any_port
+ to_port = local.any_port
+ protocol = local.any_protocol
+ cidr_blocks = local.all_ips
  }
 }
 resource "aws_lb_listener_rule" "asg" {
@@ -119,15 +119,23 @@ resource "aws_lb_target_group" "asg" {
  unhealthy_threshold = 2
  }
 }
-output "alb_dns_name" {
- value = aws_lb.example.dns_name
- description = "The domain name of the load balancer"
-}
 data "terraform_remote_state" "db" {
  backend = "s3"
  config = {
- bucket = var.db_remote_state_bucket
- key = var.db_remote_state_key
- region = "ap-northeast-2"
+  bucket = var.db_remote_state_bucket
+  key = var.db_remote_state_key
+  region = "ap-northeast-2"
  }
+}
+
+locals {
+ http_port = 80
+ any_port = 0
+ any_protocol = "-1"
+ tcp_protocol = "tcp"
+ all_ips = ["0.0.0.0/0"]
+}
+output "alb_dns_name" {
+ value = aws_lb.example.dns_name
+ description = "The domain name of the load balancer"
 }
